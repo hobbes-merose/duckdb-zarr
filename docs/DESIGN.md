@@ -171,18 +171,17 @@ For each cell in the output table:
 
 This is simply strided memory access - the same technique used by NumPy arrays. No complex data structures or algorithms required.
 
-#### Comparison with xarray-sql's Implementation
+#### Comparison with xarray-sql's iter_record_batches()
 
-Our C++ implementation differs from the [xarray-sql Python implementation](https://github.com/alxmrs/xarray-sql/blob/f1f6694ba6b16b04c73f95b082af031203e8fd83/xarray_sql/df.py#L217) in several key ways:
+Our C++ implementation is inspired by xarray-sql's production-ready `iter_record_batches()` method, which uses strided index arithmetic to convert array data to tabular format. The key difference is that we implement this approach in native C++ to eliminate Python interpreter overhead:
 
-| Aspect | xarray-sql (Python) | XQL (C++) |
-|--------|---------------------|-----------|
-| **Approach** | Uses xarray's `to_dataframe()` with broadcast/ravel operations | Direct strided memory access in C++ |
-| **Memory** | Creates intermediate pandas DataFrames (~5x memory overhead) | Zero-copy where possible, ~2x overhead |
-| **Batch processing** | Uses `iter_record_batches()` with numpy index arithmetic | Native DataChunk iteration in DuckDB |
-| **Dependencies** | Requires xarray, pandas, numpy, PyArrow | Pure C++ with DuckDB integration |
+| Aspect | xarray-sql `iter_record_batches()` | XQL (C++) |
+|--------|-----------------------------------|-----------|
+| **Implementation** | Python with numpy index arithmetic | Native C++ with strided memory access |
+| **Memory** | Creates intermediate numpy arrays (~2x overhead) | Zero-copy where possible, ~2x overhead |
+| **Dependencies** | Requires xarray, numpy, PyArrow | Pure C++ with DuckDB integration |
 
-The key insight from xarray-sql's `iter_record_batches()` is their use of strided index arithmetic: `coord_idx = (row_idx // stride[k]) % shape[k]`. Our C++ implementation applies the same principle but eliminates the Python interpreter overhead and avoids the pandas round-trip entirely.
+The key insight from xarray-sql's `iter_record_batches()` is their use of strided index arithmetic: `coord_idx = (row_idx // stride[k]) % shape[k]`. Our C++ implementation applies the same principle but eliminates the Python interpreter overhead.
 
 ## 3. Key Interfaces
 
