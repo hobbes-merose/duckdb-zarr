@@ -4,7 +4,7 @@
 
 namespace duckdb {
 
-class XqlExtension : public Extension {
+class ZarrExtension : public Extension {
 public:
 	void Load(ExtensionLoader &db) override;
 	std::string Name() override;
