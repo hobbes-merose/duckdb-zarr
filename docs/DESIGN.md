@@ -55,7 +55,7 @@ By exposing Zarr arrays as SQL tables in DuckDB, users can:
 │  ┌─────────────────────────────────────────────────────────┐   │
 │  │              XQL Extension (this project)               │   │
 │  │  ┌─────────────────────────────────────────────────────┐ │   │
-│  │  │              Table Function: xql_scan              │ │   │
+│  │  │              Table Function: read_zarr              │ │   │
 │  │  │  • CreateTableFunction() - Register function       │ │   │
 │  │  │  • bind() - Validate params, infer schema          │ │   │
 │  │  │  • scan() - Return DataChunk iterator              │ │   │
@@ -87,7 +87,7 @@ By exposing Zarr arrays as SQL tables in DuckDB, users can:
 
 ### Data Flow
 
-1. **Function Call**: User calls `SELECT * FROM xql_scan(path='...', array='temp')`
+1. **Function Call**: User calls `SELECT * FROM read_zarr(path='...', array='temp')`
 2. **Binding**: DuckDB calls table function `bind()` to validate parameters and define return schema
 3. **Planning**: DuckDB optimizes query (predicate pushdown, column pruning)
 4. **Scanning**: XQL function returns a `DataChunk` iterator via parallel scan
@@ -138,7 +138,7 @@ The implementation is divided into 5 phases, targeting approximately **950 lines
 - The core pivot algorithm is remarkably simple - only ~30 lines of code using strided memory access
 
 #### Phase 4: DuckDB Integration (~150 LOC)
-- Table function registration (xql_scan)
+- Table function registration (read_zarr)
 - Schema inference from Zarr metadata
 - DataChunk conversion to DuckDB vectors
 - Predicate pushdown support
@@ -231,10 +231,10 @@ static unique_ptr<FunctionData> XqlScanBind(ClientContext &context, TableFunctio
 
 // 3. Register the table function
 void LoadInternal(ExtensionLoader &loader) {
-    TableFunction xql_scan("xql_scan", {LogicalType::VARCHAR}, XqlScanFunction, XqlScanBind);
-    xql_scan.named_params["path"] = LogicalType::VARCHAR;
-    xql_scan.named_params["array"] = LogicalType::VARCHAR;
-    loader.RegisterFunction(xql_scan);
+    TableFunction read_zarr("read_zarr", {LogicalType::VARCHAR}, XqlScanFunction, XqlScanBind);
+    read_zarr.named_params["path"] = LogicalType::VARCHAR;
+    read_zarr.named_params["array"] = LogicalType::VARCHAR;
+    loader.RegisterFunction(read_zarr);
 }
 ```
 
@@ -341,18 +341,18 @@ static unique_ptr<FunctionData> XqlScanBind(ClientContext &context, TableFunctio
 
 ### Querying Zarr Arrays
 
-The extension exposes a table function `xql_scan` that users call directly:
+The extension exposes a table function `read_zarr` that users call directly:
 
 ```sql
 -- Basic scan (infers schema from Zarr metadata)
-SELECT * FROM xql_scan(
+SELECT * FROM read_zarr(
     path => 's3://noaa-gfs-pds/gfs.20210101/00/temp',
     array => 'temperature'
 ) LIMIT 100;
 
 -- With explicit column selection
 SELECT time, lat, lon, temperature
-FROM xql_scan(
+FROM read_zarr(
     path => 's3://my-bucket/weather.zarr',
     array => 'surface'
 )
@@ -360,7 +360,7 @@ WHERE time = 0 AND lat BETWEEN 40 AND 50;
 
 -- Creating a view for repeated queries
 CREATE VIEW temperature AS
-SELECT * FROM xql_scan(
+SELECT * FROM read_zarr(
     path => 's3://noaa-gfs-pds/gfs.20210101/00/temp',
     array => 'temperature'
 );
@@ -398,7 +398,7 @@ LOAD xql;
 SELECT xql_version();
 
 -- List arrays in a Zarr store
-SELECT * FROM xql_list('/path/to/store.zarr');
+SELECT * FROM read_zarr_metadata('/path/to/store.zarr');
 ```
 
 ---
@@ -489,11 +489,11 @@ These components handle:
 
 - [ ] Set up C++ dependencies (nlohmann/json, c-blosc2)
 - [ ] Implement basic table function registration
-- [ ] Implement `xql_list` function to discover arrays in a store
+- [ ] Implement `read_zarr_metadata` function to discover arrays in a store
 - [ ] Read Zarr metadata and expose as DuckDB result
 - [ ] Basic test with local filesystem Zarr
 
-**Deliverable**: `SELECT * FROM xql_list('/path/to/zarr.zarr')`
+**Deliverable**: `SELECT * FROM read_zarr_metadata('/path/to/zarr.zarr')`
 
 ### Milestone 2: Table Function Implementation (Week 3-4)
 
@@ -505,7 +505,7 @@ These components handle:
 - [ ] Support simple queries (SELECT without filters)
 - [ ] Test with small Zarr arrays
 
-**Deliverable**: `SELECT * FROM xql_scan(path='/path', array='temp')` returns data
+**Deliverable**: `SELECT * FROM read_zarr(path='/path', array='temp')` returns data
 
 ### Milestone 3: Predicate Pushdown (Week 5-6)
 
@@ -518,7 +518,7 @@ These components handle:
 - [ ] Chunk cache for frequently accessed data
 - [ ] Benchmark with large datasets
 
-**Deliverable**: `SELECT * FROM xql_scan(...) WHERE time BETWEEN x AND y` only reads relevant chunks
+**Deliverable**: `SELECT * FROM read_zarr(...) WHERE time BETWEEN x AND y` only reads relevant chunks
 
 ### Milestone 4: Cloud Storage Support (Week 7-8)
 
@@ -554,7 +554,7 @@ These components handle:
 - [ ] Performance benchmarking
 - [ ] Compatibility testing with DuckDB versions
 
-**Deliverable**: `INSTALL xql FROM community; LOAD xql;` followed by `SELECT * FROM xql_scan(...)`
+**Deliverable**: `INSTALL xql FROM community; LOAD xql;` followed by `SELECT * FROM read_zarr(...)`
 
 ---
 
