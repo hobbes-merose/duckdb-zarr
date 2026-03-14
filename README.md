@@ -4,7 +4,7 @@ A DuckDB extension for querying Zarr-format scientific arrays with SQL.
 
 ## What It Does
 
-**duckdb-zarr** extends DuckDB with the ability to query Zarr arrays directly using SQL. Zarr is a format for storing chunked, compressed N-dimensional arrays, widely used in scientific computing and big data applications—particularly in climate science, astronomy, genomics, and remote sensing.
+**duckdb-zarr** extends DuckDB with the ability to query Zarr arrays directly using SQL. [Zarr](https://zarr.dev/) is a format for storing chunked, compressed N-dimensional arrays, widely used in scientific computing and big data applications—particularly in climate science, astronomy, genomics, and remote sensing.
 
 With this extension, you can:
 
@@ -12,9 +12,13 @@ With this extension, you can:
 - Read array data directly into DuckDB tables
 - Combine Zarr data with other data sources using standard SQL joins
 
+### The Pivot Concept
+
+Zarr arrays are n-dimensional gridded data (like satellite imagery, climate model outputs, or sensor readings). This extension "pivots" these multi-dimensional arrays into relational tables—treating each cell in the array as a row, with coordinates as columns. This lets you use familiar SQL to query data that would otherwise require specialized array-processing tools.
+
 ### Why This Is Useful
 
-Scientific datasets are often stored in Zarr format because it handles multi-terabyte arrays efficiently through chunking and compression. However, traditional SQL databases don't understand Zarr. This extension bridges that gap—allowing data scientists and engineers to:
+Scientific datasets are often stored in Zarr format because it handles multi-terabyte to petabyte-scale arrays efficiently through chunking and compression. However, traditional SQL databases don't understand Zarr. This extension bridges that gap—allowing data scientists and engineers to:
 
 - Query Zarr metadata without loading entire arrays into memory
 - Perform SQL analytics on scientific data alongside structured data
@@ -102,14 +106,7 @@ After building, load the extension in DuckDB:
 
 **Current Phase: Phase 1 - Zarr Metadata Parser**
 
-This extension is under active development. The implementation follows a phased approach:
-
-| Phase | Feature | Status |
-|-------|---------|--------|
-| 1 | Zarr Metadata Parser | In Progress (PR #4) |
-| 2 | Array Data Reader | Planned |
-| 3 | Chunked Reading Optimization | Planned |
-| 4 | SQL Pushdown Filters | Planned |
+This extension is under active development. Track our progress and planned features via the [issue tracker](https://github.com/hobbes-merose/duckdb-zarr/issues).
 
 ### Table Functions
 
