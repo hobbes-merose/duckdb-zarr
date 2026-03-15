@@ -53,13 +53,13 @@ private:
 	ZarrArrayMetadata ParseZarray(const std::string &zarray_content, const std::string &name);
 
 	//! Parse Zarr v3 metadata (zarr.json)
-	void ParseZarrJson(yyjson_val *json, const std::string &name);
+	void ParseZarrJson(duckdb_yyjson::yyjson_val *json, const std::string &name);
 
 	//! Normalize dtype string
 	std::string NormalizeDtype(const std::string &dtype);
 
 	//! Convert fill_value to string
-	std::string FillValueToString(yyjson_val *fill_value);
+	std::string FillValueToString(duckdb_yyjson::yyjson_val *fill_value);
 };
 
 } // namespace duckdb
