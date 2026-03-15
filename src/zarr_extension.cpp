@@ -104,9 +104,10 @@ static void ReadZarrMetadataFunction(ClientContext &context, TableFunctionInput 
 	state.current_index += count;
 }
 
-static unique_ptr<FunctionData>
-ReadZarrMetadataBind(ClientContext &context, TableFunctionBindInfo &bind_info, (void)context; (void)bind_info;
-                     vector<LogicalType> & return_types, vector<string> &names) {
+static unique_ptr<FunctionData> ReadZarrMetadataBind(ClientContext &context, TableFunctionBindInfo &bind_info,
+                                                     vector<LogicalType> &return_types, vector<string> &names) {
+	(void)context;
+	(void)bind_info;
 	// Define return types
 	return_types.push_back(LogicalType::VARCHAR); // name
 	return_types.push_back(LogicalType::VARCHAR); // shape
