@@ -12,6 +12,13 @@ find_package(OpenSSL REQUIRED)
 # yyjson is included from DuckDB's third_party directory
 set(YYJSON_INCLUDE_DIR "${DUCKDB_SRCDIR}/third_party/yyjson/include")
 
+# Include DuckDB headers for yyjson
+include_directories(${DUCKDB_SRCDIR}/third_party/yyjson/include)
+# Include compression library headers
+include_directories(${DUCKDB_SRCDIR}/third_party/lz4)
+include_directories(${DUCKDB_SRCDIR}/third_party/zstd/include)
+include_directories(${DUCKDB_SRCDIR}/third_party/miniz)
+
 set(EXTENSION_NAME ${TARGET_NAME}_extension)
 set(LOADABLE_EXTENSION_NAME ${TARGET_NAME}_loadable_extension)
 
@@ -19,10 +26,21 @@ project(${TARGET_NAME})
 include_directories(src/include)
 include_directories(${YYJSON_INCLUDE_DIR})
 
-set(EXTENSION_SOURCES src/zarr_extension.cpp src/zarr_metadata.cpp)
+set(EXTENSION_SOURCES
+    src/zarr_extension.cpp
+    src/zarr_metadata.cpp
+    src/zarr/metadata.cpp
+    src/zarr/chunk.cpp
+)
 
-build_static_extension(${TARGET_NAME} ${EXTENSION_SOURCES})
-build_loadable_extension(${TARGET_NAME} " " ${EXTENSION_SOURCES})
+set(EXTENSION_HEADERS
+    src/include/zarr_extension.hpp
+    src/include/zarr/metadata.hpp
+    src/include/zarr/chunk.hpp
+)
+
+build_static_extension(${TARGET_NAME} ${EXTENSION_SOURCES} ${EXTENSION_HEADERS})
+build_loadable_extension(${TARGET_NAME} " " ${EXTENSION_SOURCES} ${EXTENSION_HEADERS})
 
 # Link OpenSSL and yyjson in both the static library as the loadable extension
 target_link_libraries(${EXTENSION_NAME} OpenSSL::SSL OpenSSL::Crypto
