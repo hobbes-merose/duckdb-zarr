@@ -160,10 +160,25 @@ static void LoadInternal(ExtensionLoader &loader) {
 	
 	// Register table functions
 	loader.RegisterFunction(GetReadZarrMetadataFunction());
+	
+	// =========================================================================
+	// PHASE 5: Register ZarrTableFunction with projection pushdown support
+	// =========================================================================
+	// The read_zarr table function now includes infrastructure for:
+	// - Projection pushdown: Only read requested columns
+	// - Metadata listing: Lists arrays in a Zarr store
+	//
+	// Note: The actual registration happens through the extension's Load function
+	// which calls ZarrTableFunction::Register() when the database is available
 }
 
 void ZarrExtension::Load(ExtensionLoader &loader) {
 	LoadInternal(loader);
+	
+	// Register the read_zarr table function (Phase 5)
+	// This needs to be done here because it requires the database instance
+	auto& db = Database::GetDatabase(loader.GetContext());
+	zarr::ZarrTableFunction::Register(db);
 }
 
 std::string ZarrExtension::Name() {

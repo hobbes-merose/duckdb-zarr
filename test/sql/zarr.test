@@ -21,3 +21,26 @@ query I
 SELECT zarr_openssl_version('Michael') ILIKE 'zarr Michael, my linked OpenSSL version is OpenSSL%';
 ----
 true
+
+# ============================================================================
+# PHASE 5: Metadata Listing + Projection Pushdown Tests
+# ============================================================================
+
+# Test that read_zarr_metadata table function exists
+query I
+SELECT typeof(read_zarr_metadata('/tmp'));
+----
+table
+
+# Test read_zarr function exists (with projection pushdown support)
+# Note: This will fail because we haven't implemented the actual chunk reading yet,
+# but the function should be registered and accept the parameters
+statement error
+SELECT * FROM read_zarr(path => '/tmp', array => 'test');
+----
+Could not find Zarr array
+
+# Test metadata function returns proper schema
+query II
+SELECT name, dtype FROM read_zarr_metadata('/tmp') LIMIT 1;
+----

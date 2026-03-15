@@ -18,6 +18,10 @@ struct ZarrBindData {
 	std::vector<CoordinateArray> coordinates; // Coordinate arrays
 	vector<string> column_names;           // Output column names
 	vector<LogicalType> column_types;      // Output column types
+	
+	// Projection pushdown support
+	std::vector<idx_t> projected_columns;  // Indices of columns to read (empty = all)
+	bool projection_enabled;                // Whether projection pushdown is active
 };
 
 /// Global state for parallel scanning
