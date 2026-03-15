@@ -5,6 +5,8 @@
 #include "duckdb/common/string_util.hpp"
 #include "yyjson.hpp"
 
+using duckdb_yyjson::yyjson_val;
+
 namespace duckdb {
 
 //! Free function to parse Zarr metadata from a path
