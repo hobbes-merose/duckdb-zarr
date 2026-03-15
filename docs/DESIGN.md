@@ -1,6 +1,6 @@
-# XQL Extension Design Document
+# Zarr Extension Design Document
 
-**Project:** xql - DuckDB Extension for n-Dimensional Array Data
+**Project:** duckdb-zarr - DuckDB Extension for n-Dimensional Array Data
 **Status:** Design Draft
 **Version:** 0.1.0
 
@@ -53,7 +53,7 @@ By exposing Zarr arrays as SQL tables in DuckDB, users can:
 │  └─────────────────────────────────────────────────────────┘   │
 │                              │                                   │
 │  ┌─────────────────────────────────────────────────────────┐   │
-│  │              XQL Extension (this project)               │   │
+│  │              Zarr Extension (this project)               │   │
 │  │  ┌─────────────────────────────────────────────────────┐ │   │
 │  │  │              Table Function: read_zarr              │ │   │
 │  │  │  • CreateTableFunction() - Register function       │ │   │
@@ -67,7 +67,7 @@ By exposing Zarr arrays as SQL tables in DuckDB, users can:
                                │
                                ▼
 ┌─────────────────────────────────────────────────────────────────┐
-│                    XQL C++ Implementation                        │
+│                    Zarr C++ Implementation                        │
 │  ┌─────────────────────────────────────────────────────────┐   │
 │  │  Zarr Metadata Parser → Chunk Reader → Pivot Algorithm │   │
 │  │  • Parse .zarr JSON metadata (shape, dtype, chunks)     │   │
@@ -90,8 +90,42 @@ By exposing Zarr arrays as SQL tables in DuckDB, users can:
 1. **Function Call**: User calls `SELECT * FROM read_zarr(path='...', array='temp')`
 2. **Binding**: DuckDB calls table function `bind()` to validate parameters and define return schema
 3. **Planning**: DuckDB optimizes query (predicate pushdown, column pruning)
-4. **Scanning**: XQL function returns a `DataChunk` iterator via parallel scan
+4. **Scanning**: Zarr function returns a `DataChunk` iterator via parallel scan
 5. **Conversion**: Zarr data (via native C++ implementation) is converted to DuckDB vectors
+
+---
+
+## How It Works
+
+Zarr stores multidimensional data in chunked arrays. For example, a weather dataset might have:
+- Coordinate arrays: time, lat, lon (1D)
+- Data arrays: temperature, humidity (3D: time × lat × lon)
+
+This library flattens the 3D structure into rows where each row represents one grid cell:
+
+```
+Zarr Store (3D)           →    SQL Table (2D)
+─────────────────────────────────────────────────────
+temperature[t, lat, lon]  →    | timestamp | lat | lon | temperature |
+humidity[t, lat, lon]     →    | 0         | 0   | 0   | 43          |
+                            →    | 0         | 0   | 1   | 51          |
+                            →    | ...       | ... | ... | ...         |
+```
+
+### Assumptions
+
+1. **Coordinates are 1D arrays** — Any array with a single dimension is treated as a coordinate
+2. **Data variables are nD arrays** — Arrays with multiple dimensions. Their dimensionality must equal the number of coordinate arrays
+3. **Cartesian product structure** — Data variables represent the Cartesian product of all coordinates
+4. **Dimension ordering** — Coordinates are sorted alphabetically, and data variable dimensions follow this same order
+
+### Features
+
+- **Zarr v2 and v3 support**: Compatible with both Zarr format versions
+- **Schema inference**: Automatically infers Arrow schema from Zarr metadata
+- **Projection pushdown**: Only reads arrays that are needed for the query
+- **Memory efficient coordinates**: Uses Arrow DictionaryArray for coordinate columns (~75% memory savings)
+- **SQL interface**: Full DataFusion SQL support (filtering, aggregation, joins, etc.)
 
 ---
 
@@ -175,7 +209,7 @@ This is simply strided memory access - the same technique used by NumPy arrays. 
 
 Our C++ implementation is inspired by xarray-sql's production-ready `iter_record_batches()` method, which uses strided index arithmetic to convert array data to tabular format. The key difference is that we implement this approach in native C++ to eliminate Python interpreter overhead:
 
-| Aspect | xarray-sql `iter_record_batches()` | XQL (C++) |
+| Aspect | xarray-sql `iter_record_batches()` | duckdb-zarr (C++) |
 |--------|-----------------------------------|-----------|
 | **Implementation** | Python with numpy index arithmetic | Native C++ with strided memory access |
 | **Memory** | Creates intermediate numpy arrays (~2x overhead) | Zero-copy where possible, ~2x overhead |
@@ -193,7 +227,7 @@ The extension follows the standard DuckDB extension pattern:
 #include <duckdb.hpp>
 
 extern "C" {
-DUCKDB_CPP_EXTENSION_ENTRY(xql, loader) {
+DUCKDB_CPP_EXTENSION_ENTRY(zarr, loader) {
     duckdb::LoadInternal(loader);
 }
 }
@@ -328,7 +362,7 @@ static unique_ptr<FunctionData> XqlScanBind(ClientContext &context, TableFunctio
 
     // Example: WHERE time BETWEEN 100 AND 200 AND temp > 300
     // input.filters contains these expressions
-    // Convert to XQL predicate for chunk selection
+    // Convert to Zarr predicate for chunk selection
 
     auto predicate = ConvertDuckDBFilters(input.filters, schema);
     return make_uniq<XqlScanBindData>(..., std::move(predicate));
@@ -392,10 +426,10 @@ ORDER BY time;
 
 ```sql
 -- Load extension
-LOAD xql;
+LOAD zarr;
 
 -- Show extension version
-SELECT xql_version();
+SELECT zarr_version();
 
 -- List arrays in a Zarr store
 SELECT * FROM read_zarr_metadata('/path/to/store.zarr');
@@ -420,7 +454,7 @@ SELECT * FROM read_zarr_metadata('/path/to/store.zarr');
 ```
 duckdb
   │
-  └── xql_extension (native C++ implementation)
+  └── duckdb_zarr_extension (native C++ implementation)
         │
         ├── nlohmann/json (Zarr metadata parsing)
         │     │
@@ -554,7 +588,7 @@ These components handle:
 - [ ] Performance benchmarking
 - [ ] Compatibility testing with DuckDB versions
 
-**Deliverable**: `INSTALL xql FROM community; LOAD xql;` followed by `SELECT * FROM read_zarr(...)`
+**Deliverable**: `INSTALL zarr FROM community; LOAD zarr;` followed by `SELECT * FROM read_zarr(...)`
 
 ---
 
@@ -593,7 +627,7 @@ The extension uses DuckDB's standard extension mechanism:
 
 ```cpp
 extern "C" {
-DUCKDB_CPP_EXTENSION_ENTRY(xql, loader) {
+DUCKDB_CPP_EXTENSION_ENTRY(zarr, loader) {
     duckdb::LoadInternal(loader);
 }
 }
@@ -602,7 +636,7 @@ DUCKDB_CPP_EXTENSION_ENTRY(xql, loader) {
 This allows:
 - Static linking into DuckDB binary
 - Dynamic loading as `.duckdb_extension` file
-- Installation via `INSTALL xql FROM community`
+- Installation via `INSTALL zarr FROM community`
 
 ---
 
