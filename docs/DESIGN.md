@@ -95,7 +95,7 @@ By exposing Zarr arrays as SQL tables in DuckDB, users can:
 
 ---
 
-## How It Works
+## 2.2 How It Works
 
 Zarr stores multidimensional data in chunked arrays. For example, a weather dataset might have:
 - Coordinate arrays: time, lat, lon (1D)
@@ -147,7 +147,7 @@ We are reimplementing the [zarr-datafusion](https://docs.rs/zarr-datafusion/late
 
 - **[constantinpape/z5](https://github.com/constantinpape/z5)**: C++ library for n5 format (a Zarr variant), used in scientific computing. Requires complex build dependencies and is specialized for niche use cases.
 
-Additionally, using DuckDB's internal [filesystem package](https://github.com/duckdb/duckdb/tree/main/src/common/file_system) provides better integration - we can leverage their existing abstractions for local files, S3, GCS, etc. without FFI complexity. This avoids the overhead of bridging between external C++ libraries and DuckDB's memory management.
+Additionally, using DuckDB's internal file system abstractions provides better integration - we can leverage their existing abstractions for local files, S3, GCS, etc. without FFI complexity. This avoids the overhead of bridging between external C++ libraries and DuckDB's memory management.
 
 ### Implementation Plan
 
@@ -173,12 +173,13 @@ The implementation is divided into 5 phases, targeting approximately **950 lines
 
 #### Phase 4: DuckDB Integration (~150 LOC)
 - Table function registration (read_zarr)
-- Schema inference from Zarr metadata
+- Schema inference from Zarr metadata (coordinate arrays → columns, data variables → flattened columns)
 - DataChunk conversion to DuckDB vectors
 - Predicate pushdown support
+- Projection pushdown (only read requested columns)
 
 #### Phase 5: Cloud Storage (~100 LOC)
-- Use Arrow/DuckDBs existing object_store integration
+- Use Arrow/DuckDB's existing object_store integration
 - Support S3, GCS, Azure Blob storage backends
 - Leverage connection pooling and caching
 
@@ -195,7 +196,7 @@ All dependencies are already available in the DuckDB ecosystem:
 
 ### The Pivot Algorithm
 
-The pivot algorithm is the heart of the transformation - converting n-dimensional array data into a tabular format for SQL queries. The core implementation is remarkably simple (about 30 lines):
+The pivot algorithm is the heart of the transformation - converting n-dimensional array data into a tabular format for SQL queries. The core implementation uses strided memory access (about 30 lines):
 
 For each cell in the output table:
 1. Calculate the n-dimensional index from the row position
@@ -204,6 +205,17 @@ For each cell in the output table:
 4. Apply strided access to read the value
 
 This is simply strided memory access - the same technique used by NumPy arrays. No complex data structures or algorithms required.
+
+#### Memory-Efficient Coordinate Expansion
+
+The zarr-datafusion crate demonstrates a key optimization: using DictionaryArray for coordinate columns (~75% memory savings). When flattening n-dimensional data, coordinate values repeat many times. Using dictionary encoding instead of plain arrays significantly reduces memory usage:
+
+| Approach | Memory for 10M rows |
+|----------|-------------------|
+| Plain arrays | ~300 MB |
+| DictionaryArray | ~75 MB |
+
+Our C++ implementation will use similar techniques for memory efficiency.
 
 #### Comparison with xarray-sql's iter_record_batches()
 
@@ -245,9 +257,9 @@ DuckDB extensions use **Table Functions** to expose custom data sources. The cor
 using namespace duckdb;
 
 // 1. Define the table function
-static void XqlScanFunction(ClientContext &context, TableFunctionInput &data, DataChunk &output) {
-    auto &bind_data = (XqlScanBindData &)*data.bind_data;
-    auto &global_state = (XqlScanGlobalState &)*data.global_state;
+static void ZarrScanFunction(ClientContext &context, TableFunctionInput &data, DataChunk &output) {
+    auto &bind_data = (ZarrScanBindData &)*data.bind_data;
+    auto &global_state = (ZarrScanGlobalState &)*data.global_state;
 
     // Read from Zarr via native C++ implementation
     // Convert to DataChunk (DuckDB vectors)
@@ -255,17 +267,17 @@ static void XqlScanFunction(ClientContext &context, TableFunctionInput &data, Da
 }
 
 // 2. Bind function - validates params and defines schema
-static unique_ptr<FunctionData> XqlScanBind(ClientContext &context, TableFunctionBindInput &input,
+static unique_ptr<FunctionData> ZarrScanBind(ClientContext &context, TableFunctionBindInput &input,
                                               vector<LogicalType> &return_types, vector<string> &names) {
     // Extract path, array name from input.named_params
     // Read Zarr metadata to determine schema
     // Populate return_types and names (dimension columns + data columns)
-    return make_uniq<XqlScanBindData>(...);
+    return make_uniq<ZarrScanBindData>(...);
 }
 
 // 3. Register the table function
 void LoadInternal(ExtensionLoader &loader) {
-    TableFunction read_zarr("read_zarr", {LogicalType::VARCHAR}, XqlScanFunction, XqlScanBind);
+    TableFunction read_zarr("read_zarr", {}, ZarrScanFunction, ZarrScanBind);
     read_zarr.named_params["path"] = LogicalType::VARCHAR;
     read_zarr.named_params["array"] = LogicalType::VARCHAR;
     loader.RegisterFunction(read_zarr);
@@ -278,19 +290,19 @@ For performance with large datasets, implement `GlobalState` for parallel coordi
 
 ```cpp
 // GlobalState for parallel scanning
-struct XqlScanGlobalState : public GlobalState {
+struct ZarrScanGlobalState : public GlobalState {
     idx_t current_chunk_idx = 0;
     mutex lock;
     // Track which Zarr chunks have been read
 };
 
 // Table function with parallel support
-static unique_ptr<GlobalState> XqlScanInitGlobal(ClientContext &context, TableFunctionInitInput &input) {
-    return make_uniq<XqlScanGlobalState>();
+static unique_ptr<GlobalState> ZarrScanInitGlobal(ClientContext &context, TableFunctionInitInput &input) {
+    return make_uniq<ZarrScanGlobalState>();
 }
 
-static void XqlScanFunction(ClientContext &context, TableFunctionInput &data, DataChunk &output) {
-    auto &global_state = (XqlScanGlobalState &)*data.global_state;
+static void ZarrScanFunction(ClientContext &context, TableFunctionInput &data, DataChunk &output) {
+    auto &global_state = (ZarrScanGlobalState &)*data.global_state;
 
     // Thread-safe chunk reading
     lock_guard<mutex> lg(global_state.lock);
@@ -330,8 +342,8 @@ SQL Table (temperature):
 
 ```cpp
 // In table function implementation
-static void XqlScanFunction(ClientContext &context, TableFunctionInput &data, DataChunk &output) {
-    auto &bind_data = (XqlScanBindData &)*data.bind_data;
+static void ZarrScanFunction(ClientContext &context, TableFunctionInput &data, DataChunk &output) {
+    auto &bind_data = (ZarrScanBindData &)*data.bind_data;
 
     // 1. Extract parameters from bind data
     auto &zarr_path = bind_data.zarr_path;
@@ -355,7 +367,7 @@ static void XqlScanFunction(ClientContext &context, TableFunctionInput &data, Da
 DuckDB automatically pushes down predicates to the table function. Access them via the `data` parameter:
 
 ```cpp
-static unique_ptr<FunctionData> XqlScanBind(ClientContext &context, TableFunctionBindInput &input,
+static unique_ptr<FunctionData> ZarrScanBind(ClientContext &context, TableFunctionBindInput &input,
                                               vector<LogicalType> &return_types, vector<string> &names) {
     // DuckDB passes filter expressions to the scan function
     // We extract them from input.filters
@@ -365,7 +377,7 @@ static unique_ptr<FunctionData> XqlScanBind(ClientContext &context, TableFunctio
     // Convert to Zarr predicate for chunk selection
 
     auto predicate = ConvertDuckDBFilters(input.filters, schema);
-    return make_uniq<XqlScanBindData>(..., std::move(predicate));
+    return make_uniq<ZarrScanBindData>(..., std::move(predicate));
 }
 ```
 
@@ -643,7 +655,7 @@ This allows:
 ## 8. Related Projects
 
 - **xarray-sql** (https://github.com/alxmrs/xarray-sql): Parent project, Python library
-- **zarr-datafusion** (https://github.com/alxmrs/zarr-datafusion): Rust crate for Zarr + DataFusion
+- **zarr-datafusion** (https://lib.rs/crates/zarr-datafusion): Rust crate for Zarr + DataFusion
 - **DuckDB** (https://github.com/duckdb/duckdb): Analytical database
 - **DuckDB Extension Template** (https://github.com/duckdb/extension-template): This project's foundation
 - **Zarr** (https://zarr.dev): N-dimensional array storage format
