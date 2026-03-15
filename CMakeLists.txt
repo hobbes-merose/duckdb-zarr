@@ -11,6 +11,10 @@ find_package(nlohmann_json REQUIRED)
 
 # Include DuckDB headers for yyjson
 include_directories(${DUCKDB_SRCDIR}/third_party/yyjson/include)
+# Include compression library headers
+include_directories(${DUCKDB_SRCDIR}/third_party/lz4)
+include_directories(${DUCKDB_SRCDIR}/third_party/zstd/include)
+include_directories(${DUCKDB_SRCDIR}/third_party/miniz)
 
 set(EXTENSION_NAME ${TARGET_NAME}_extension)
 set(LOADABLE_EXTENSION_NAME ${TARGET_NAME}_loadable_extension)

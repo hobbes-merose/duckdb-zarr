@@ -5,8 +5,9 @@
 #include <cstring>
 
 // Include compression libraries from DuckDB third_party
-// Note: We'll use DuckDB's internal abstractions where possible
-// For now, implement basic decompression
+#include "lz4/lz4.hpp"
+#include "miniz/miniz.hpp"
+#include "zstd/include/zstd.h"
 
 namespace duckdb {
 namespace zarr {
@@ -232,25 +233,21 @@ std::vector<uint8_t> ChunkReader::DecompressBlosc(
     const uint8_t* compressed_data,
     size_t compressed_size,
     size_t uncompressed_size) {
-	// Blosc decompression requires the c-blosc2 library
-	// For now, throw if not available - this will be integrated with DuckDB's blosc
-
-	// TODO: Integrate with DuckDB's blosc implementation
-	// For now, fall through to uncompressed if blosc header not detected
-
-	// Check for blosc magic number (0xCA 0xFE 0xD0 0x01)
-	if (compressed_size >= 4 &&
-		compressed_data[0] == 0xCA && compressed_data[1] == 0xFE &&
-		compressed_data[2] == 0xD0 && compressed_data[3] == 0x01) {
-
-		throw std::runtime_error("Blosc decompression not yet implemented - "
-			"requires integration with DuckDB's c-blosc2");
+	// Blosc decompression using c-blosc2
+	// Check for blosc2 magic number (0xCA 0xFE 0xD0 0x01)
+	if (compressed_size < 4 ||
+		compressed_data[0] != 0xCA || compressed_data[1] != 0xFE ||
+		compressed_data[2] != 0xD0 || compressed_data[3] != 0x01) {
+		// Not blosc2 format, assume uncompressed
+		std::vector<uint8_t> result(uncompressed_size);
+		std::memcpy(result.data(), compressed_data, std::min(compressed_size, uncompressed_size));
+		return result;
 	}
 
-	// Not blosc, assume uncompressed
-	std::vector<uint8_t> result(uncompressed_size);
-	std::memcpy(result.data(), compressed_data, std::min(compressed_size, uncompressed_size));
-	return result;
+	// For now, throw since blosc requires more integration
+	// In a full implementation, we would use c-blosc2_decompress
+	throw std::runtime_error("Blosc decompression not fully implemented - "
+		"requires c-blosc2 library integration");
 }
 
 std::vector<uint8_t> ChunkReader::DecompressZstd(
@@ -258,14 +255,22 @@ std::vector<uint8_t> ChunkReader::DecompressZstd(
     size_t compressed_size,
     size_t uncompressed_size) {
 	// Use DuckDB's bundled zstd
-	// For now, throw if not available
-
-	throw std::runtime_error("Zstd decompression not yet implemented - "
-		"requires integration with DuckDB's zstd library");
-
-	// Unreachable but keeps compiler happy
-	// std::vector<uint8_t> result(uncompressed_size);
-	// return result;
+	size_t result_size = uncompressed_size;
+	std::vector<uint8_t> result(uncompressed_size);
+	
+	size_t decompressed = ZSTD_decompress(
+		result.data(),
+		result_size,
+		compressed_data,
+		compressed_size
+	);
+	
+	if (ZSTD_isError(decompressed)) {
+		throw std::runtime_error(std::string("Zstd decompression failed: ") + 
+		                          ZSTD_getErrorName(decompressed));
+	}
+	
+	return result;
 }
 
 std::vector<uint8_t> ChunkReader::DecompressLz4(
@@ -273,8 +278,21 @@ std::vector<uint8_t> ChunkReader::DecompressLz4(
     size_t compressed_size,
     size_t uncompressed_size) {
 	// Use DuckDB's bundled lz4
-	throw std::runtime_error("LZ4 decompression not yet implemented - "
-		"requires integration with DuckDB's lz4 library");
+	std::vector<uint8_t> result(uncompressed_size);
+	
+	int decompressed = LZ4_decompress_safe(
+		reinterpret_cast<const char*>(compressed_data),
+		reinterpret_cast<char*>(result.data()),
+		compressed_size,
+		uncompressed_size
+	);
+	
+	if (decompressed < 0) {
+		throw std::runtime_error("LZ4 decompression failed");
+	}
+	
+	result.resize(decompressed);
+	return result;
 }
 
 std::vector<uint8_t> ChunkReader::DecompressGzip(
@@ -282,8 +300,23 @@ std::vector<uint8_t> ChunkReader::DecompressGzip(
     size_t compressed_size,
     size_t uncompressed_size) {
 	// Use DuckDB's bundled miniz (which supports gzip/zlib)
-	throw std::runtime_error("Gzip decompression not yet implemented - "
-		"requires integration with DuckDB's miniz library");
+	mz_ulong dest_len = uncompressed_size;
+	std::vector<uint8_t> result(uncompressed_size);
+	
+	int status = mz_uncompress(
+		result.data(),
+		&dest_len,
+		compressed_data,
+		compressed_size
+	);
+	
+	if (status != MZ_OK) {
+		throw std::runtime_error(std::string("Gzip decompression failed: ") + 
+		                          mz_error(status));
+	}
+	
+	result.resize(dest_len);
+	return result;
 }
 
 } // namespace zarr
