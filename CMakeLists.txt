@@ -25,12 +25,14 @@ set(EXTENSION_SOURCES
     src/zarr_extension.cpp
     src/zarr/metadata.cpp
     src/zarr/chunk.cpp
+    src/zarr/pivot.cpp
 )
 
 set(EXTENSION_HEADERS
     src/include/zarr_extension.hpp
     src/include/zarr/metadata.hpp
     src/include/zarr/chunk.hpp
+    src/include/zarr/pivot.hpp
 )
 
 build_static_extension(${TARGET_NAME} ${EXTENSION_SOURCES} ${EXTENSION_HEADERS})
