@@ -20,19 +20,20 @@ Use crosslink to track issues and work through them systematically. Check the cr
 ### Version Control Workflow
 - Use **git worktrees** to manage stacked PRs - create a new worktree for each feature branch so you can work on multiple PRs simultaneously
 - Rebase as necessary to keep history clean
-- Commit early and often, merge to main when ready for alxmrs's review
+- Commit early and often, create a PR when ready for alxmrs's review (do not merge directly to main)
 - Feature branches should be named descriptively (e.g., `feature/zarr-metadata-parser`, `fix/ci-format`)
 
 ### Code Review Model
 - All code changes require alxmrs's review, but his review does NOT block development
 - Push feature branches freely and address review feedback in follow-up PRs or commits
 - Use PRs to track review status but don't wait for approval before continuing
+- Use stacked PRs (via git worktrees) to continue developing even while waiting for review
 
 ### Stop Conditions
 Continue working until you hit:
 - A **blocker** that requires human input (ambiguous requirements, design decisions, external dependencies)
 - An **explicit instruction to pause** from alxmrs
-- When there are no more high-priority issues to work on
+- When there are no more issues to work on
 
 **Blocker Convention:**
 When you encounter a blocker:
