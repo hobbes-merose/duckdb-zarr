@@ -14,10 +14,27 @@ set(LOADABLE_EXTENSION_NAME ${TARGET_NAME}_loadable_extension)
 project(${TARGET_NAME})
 include_directories(src/include)
 
-set(EXTENSION_SOURCES src/zarr_extension.cpp)
+# Include DuckDB headers for yyjson
+include_directories(${DUCKDB_SRCDIR}/third_party/yyjson/include)
 
-build_static_extension(${TARGET_NAME} ${EXTENSION_SOURCES})
-build_loadable_extension(${TARGET_NAME} " " ${EXTENSION_SOURCES})
+set(EXTENSION_SOURCES
+    src/zarr_extension.cpp
+    src/zarr/metadata.cpp
+    src/zarr/chunk.cpp
+    src/zarr/pivot.cpp
+    src/zarr/table_function.cpp
+)
+
+set(EXTENSION_HEADERS
+    src/include/zarr_extension.hpp
+    src/include/zarr/metadata.hpp
+    src/include/zarr/chunk.hpp
+    src/include/zarr/pivot.hpp
+    src/include/zarr/table_function.hpp
+)
+
+build_static_extension(${TARGET_NAME} ${EXTENSION_SOURCES} ${EXTENSION_HEADERS})
+build_loadable_extension(${TARGET_NAME} " " ${EXTENSION_SOURCES} ${EXTENSION_HEADERS})
 
 # Link OpenSSL in both the static library as the loadable extension
 target_link_libraries(${EXTENSION_NAME} OpenSSL::SSL OpenSSL::Crypto)
