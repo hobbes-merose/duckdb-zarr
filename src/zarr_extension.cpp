@@ -22,16 +22,16 @@ struct ZarrMetadataFunctionData : public FunctionData {
 
 //! Zarr metadata table function bind
 static unique_ptr<FunctionData> ZarrMetadataBind(ClientContext &context, TableFunctionBindInput &input,
-                                                   vector<LogicalType> &return_types, vector<string> &names) {
+                                                 vector<LogicalType> &return_types, vector<string> &names) {
 	// Define the return schema
-	return_types.push_back(LogicalType::VARCHAR);   // name
-	return_types.push_back(LogicalType::INTEGER);    // zarr_version
-	return_types.push_back(LogicalType::LIST(LogicalType::BIGINT));  // shape
+	return_types.push_back(LogicalType::VARCHAR);                   // name
+	return_types.push_back(LogicalType::INTEGER);                   // zarr_version
+	return_types.push_back(LogicalType::LIST(LogicalType::BIGINT)); // shape
 	return_types.push_back(LogicalType::LIST(LogicalType::BIGINT)); // chunks
-	return_types.push_back(LogicalType::VARCHAR);   // dtype
-	return_types.push_back(LogicalType::VARCHAR);   // fill_value
-	return_types.push_back(LogicalType::VARCHAR);  // compressor
-	return_types.push_back(LogicalType::VARCHAR);   // order
+	return_types.push_back(LogicalType::VARCHAR);                   // dtype
+	return_types.push_back(LogicalType::VARCHAR);                   // fill_value
+	return_types.push_back(LogicalType::VARCHAR);                   // compressor
+	return_types.push_back(LogicalType::VARCHAR);                   // order
 
 	names.push_back("name");
 	names.push_back("zarr_version");
@@ -72,21 +72,21 @@ static void ZarrMetadataFunction(ClientContext &context, TableFunctionInput &dat
 	// Set output values
 	output.SetValue(0, 0, Value(array_meta.name));
 	output.SetValue(1, 0, Value(array_meta.zarr_version));
-	
+
 	// Shape as list
 	vector<Value> shape_values;
 	for (auto dim : array_meta.shape) {
 		shape_values.push_back(Value(dim));
 	}
 	output.SetValue(2, 0, Value::LIST(LogicalType::BIGINT, shape_values));
-	
+
 	// Chunks as list
 	vector<Value> chunk_values;
 	for (auto chunk : array_meta.chunks) {
 		chunk_values.push_back(Value(chunk));
 	}
 	output.SetValue(3, 0, Value::LIST(LogicalType::BIGINT, chunk_values));
-	
+
 	output.SetValue(4, 0, Value(array_meta.dtype));
 	output.SetValue(5, 0, Value(array_meta.fill_value));
 	output.SetValue(6, 0, Value(array_meta.compressor));
@@ -121,7 +121,8 @@ static void LoadInternal(ExtensionLoader &loader) {
 	loader.RegisterFunction(zarr_openssl_version_scalar_function);
 
 	// Register the zarr_metadata table function
-	TableFunction zarr_metadata_function("zarr_metadata", {LogicalType::VARCHAR}, ZarrMetadataFunction, ZarrMetadataBind);
+	TableFunction zarr_metadata_function("zarr_metadata", {LogicalType::VARCHAR}, ZarrMetadataFunction,
+	                                     ZarrMetadataBind);
 	zarr_metadata_function.named_parameters["binary"] = LogicalType::BOOLEAN;
 	loader.RegisterFunction(zarr_metadata_function);
 }

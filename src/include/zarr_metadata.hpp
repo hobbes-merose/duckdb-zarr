@@ -38,34 +38,34 @@ struct ZarrArrayMetadata {
 class ZarrMetadata {
 public:
 	ZarrMetadata();
-	
+
 	//! Parse Zarr metadata from a path
-	void Parse(const std::string& path);
-	
+	void Parse(const std::string &path);
+
 	//! Get the parsed arrays
-	const std::vector<ZarrArrayMetadata>& GetArrays() const;
-	
+	const std::vector<ZarrArrayMetadata> &GetArrays() const;
+
 	//! Get the original path
-	const std::string& GetPath() const;
-	
+	const std::string &GetPath() const;
+
 	//! Check if parsing was valid
 	bool IsValid() const;
-	
+
 	//! Get error message if parsing failed
-	const std::string& GetError() const;
+	const std::string &GetError() const;
 
 private:
 	//! Parse a .zarray file (Zarr v2)
-	ZarrArrayMetadata ParseZarray(const std::string& zarray_content, const std::string& name);
-	
+	ZarrArrayMetadata ParseZarray(const std::string &zarray_content, const std::string &name);
+
 	//! Parse a zarr.json file (Zarr v3)
-	void ParseZarrJson(const std::string& zarr_json_content, const std::string& path);
-	
+	void ParseZarrJson(const std::string &zarr_json_content, const std::string &path);
+
 	//! Normalize dtype to a standard format
-	std::string NormalizeDtype(const std::string& dtype);
-	
+	std::string NormalizeDtype(const std::string &dtype);
+
 	//! Convert fill_value to string
-	std::string FillValueToString(yyjson_val* fill_value);
+	std::string FillValueToString(yyjson_val *fill_value);
 
 private:
 	//! Original path
@@ -79,6 +79,6 @@ private:
 };
 
 //! Free function to parse Zarr metadata from a path
-std::vector<ZarrArrayMetadata> ParseZarrMetadata(const std::string& path);
+std::vector<ZarrArrayMetadata> ParseZarrMetadata(const std::string &path);
 
 } // namespace duckdb

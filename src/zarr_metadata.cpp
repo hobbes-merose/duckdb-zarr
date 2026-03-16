@@ -8,7 +8,7 @@
 namespace duckdb {
 
 //! Free function to parse Zarr metadata from a path
-std::vector<ZarrArrayMetadata> ParseZarrMetadata(const std::string& path) {
+std::vector<ZarrArrayMetadata> ParseZarrMetadata(const std::string &path) {
 	ZarrMetadata parser;
 	parser.Parse(path);
 	return parser.GetArrays();
@@ -17,7 +17,7 @@ std::vector<ZarrArrayMetadata> ParseZarrMetadata(const std::string& path) {
 ZarrMetadata::ZarrMetadata() : is_valid_(false) {
 }
 
-void ZarrMetadata::Parse(const std::string& path) {
+void ZarrMetadata::Parse(const std::string &path) {
 	path_ = path;
 	arrays_.clear();
 	is_valid_ = false;
@@ -42,21 +42,21 @@ void ZarrMetadata::Parse(const std::string& path) {
 
 			// Parse as JSON using yyjson (DuckDB's internal JSON library)
 			yyjson_read_err err;
-			auto* doc = yyjson_read(content.c_str(), content.size(), 0, &err);
+			auto *doc = yyjson_read(content.c_str(), content.size(), 0, &err);
 			if (!doc) {
 				throw std::runtime_error(err.msg);
 			}
 
-			auto* root = yyjson_doc_get_root(doc);
+			auto *root = yyjson_doc_get_root(doc);
 
 			// Check if it's a group or array
-			auto* zarr_format_val = yyjson_obj_get(root, "zarr_format");
+			auto *zarr_format_val = yyjson_obj_get(root, "zarr_format");
 			if (zarr_format_val && yyjson_get_int(zarr_format_val) == 3) {
 				// Zarr v3 format
-				auto* metadata_val = yyjson_obj_get(root, "metadata");
+				auto *metadata_val = yyjson_obj_get(root, "metadata");
 				if (metadata_val && yyjson_is_obj(metadata_val)) {
 					// Check if it's an array (has shape)
-					auto* shape_val = yyjson_obj_get(metadata_val, "shape");
+					auto *shape_val = yyjson_obj_get(metadata_val, "shape");
 					if (shape_val) {
 						// This is a zarr.json for an array (not a group)
 						// Re-parse the content to get array metadata
@@ -66,7 +66,7 @@ void ZarrMetadata::Parse(const std::string& path) {
 						return;
 					}
 				}
-				
+
 				// It's a group - check for arrays in subgroups
 				// For now, just mark as valid if it's a valid v3 group
 				is_valid_ = true;
@@ -74,7 +74,7 @@ void ZarrMetadata::Parse(const std::string& path) {
 
 			yyjson_doc_free(doc);
 			return;
-		} catch (std::exception&) {
+		} catch (std::exception &) {
 			// zarr.json doesn't exist, try Zarr v2 approach
 		}
 
@@ -83,7 +83,7 @@ void ZarrMetadata::Parse(const std::string& path) {
 		std::vector<std::string> zarray_files;
 
 		try {
-			fs.ListFiles(path, [&](const std::string& fname, bool is_dir) {
+			fs.ListFiles(path, [&](const std::string &fname, bool is_dir) {
 				if (fname == ".zarray") {
 					zarray_files.push_back("");
 				} else if (fname.find("/.zarray") != std::string::npos) {
@@ -94,13 +94,13 @@ void ZarrMetadata::Parse(const std::string& path) {
 					zarray_files.push_back(fname.substr(0, fname.size() - 8));
 				}
 			});
-		} catch (std::exception& e) {
+		} catch (std::exception &e) {
 			error_message_ = "Failed to list directory: " + std::string(e.what());
 			return;
 		}
 
 		// Parse .zarray for each array found
-		for (const auto& array_path : zarray_files) {
+		for (const auto &array_path : zarray_files) {
 			std::string zarray_path = path;
 			if (!StringUtil::EndsWith(zarray_path, "/")) {
 				zarray_path += "/";
@@ -126,7 +126,7 @@ void ZarrMetadata::Parse(const std::string& path) {
 				}
 
 				arrays_.push_back(ParseZarray(content, name));
-			} catch (std::exception& e) {
+			} catch (std::exception &e) {
 				// Skip this file if we can't read it
 				(void)e;
 				continue;
@@ -140,13 +140,13 @@ void ZarrMetadata::Parse(const std::string& path) {
 			error_message_ = "No zarr arrays found in path: " + path;
 		}
 
-	} catch (std::exception& e) {
+	} catch (std::exception &e) {
 		error_message_ = std::string(e.what());
 		is_valid_ = false;
 	}
 }
 
-ZarrArrayMetadata ZarrMetadata::ParseZarray(const std::string& zarray_content, const std::string& name) {
+ZarrArrayMetadata ZarrMetadata::ParseZarray(const std::string &zarray_content, const std::string &name) {
 	ZarrArrayMetadata meta;
 	meta.name = name;
 	meta.zarr_version = 2;
@@ -155,18 +155,18 @@ ZarrArrayMetadata ZarrMetadata::ParseZarray(const std::string& zarray_content, c
 
 	try {
 		yyjson_read_err err;
-		auto* doc = yyjson_read(zarray_content.c_str(), zarray_content.size(), 0, &err);
+		auto *doc = yyjson_read(zarray_content.c_str(), zarray_content.size(), 0, &err);
 		if (!doc) {
 			return meta;
 		}
 
-		auto* json = yyjson_doc_get_root(doc);
+		auto *json = yyjson_doc_get_root(doc);
 
 		// Shape
-		auto* shape_val = yyjson_obj_get(json, "shape");
+		auto *shape_val = yyjson_obj_get(json, "shape");
 		if (shape_val && yyjson_is_arr(shape_val)) {
 			size_t idx, max;
-			yyjson_arr_foreach(shape_val, idx, max, auto* dim) {
+			yyjson_arr_foreach(shape_val, idx, max, auto *dim) {
 				if (yyjson_is_int(dim)) {
 					meta.shape.push_back(yyjson_get_int(dim));
 				}
@@ -174,10 +174,10 @@ ZarrArrayMetadata ZarrMetadata::ParseZarray(const std::string& zarray_content, c
 		}
 
 		// Chunks
-		auto* chunks_val = yyjson_obj_get(json, "chunks");
+		auto *chunks_val = yyjson_obj_get(json, "chunks");
 		if (chunks_val && yyjson_is_arr(chunks_val)) {
 			size_t idx, max;
-			yyjson_arr_foreach(chunks_val, idx, max, auto* chunk) {
+			yyjson_arr_foreach(chunks_val, idx, max, auto *chunk) {
 				if (yyjson_is_int(chunk)) {
 					meta.chunks.push_back(yyjson_get_int(chunk));
 				}
@@ -185,27 +185,27 @@ ZarrArrayMetadata ZarrMetadata::ParseZarray(const std::string& zarray_content, c
 		}
 
 		// Dtype
-		auto* dtype_val = yyjson_obj_get(json, "dtype");
+		auto *dtype_val = yyjson_obj_get(json, "dtype");
 		if (dtype_val && yyjson_is_str(dtype_val)) {
 			meta.dtype = NormalizeDtype(yyjson_get_str(dtype_val));
 		}
 
 		// Fill value
-		auto* fill_value_val = yyjson_obj_get(json, "fill_value");
+		auto *fill_value_val = yyjson_obj_get(json, "fill_value");
 		if (fill_value_val) {
 			meta.fill_value = FillValueToString(fill_value_val);
 		}
 
 		// Compressor
-		auto* compressor_val = yyjson_obj_get(json, "compressor");
+		auto *compressor_val = yyjson_obj_get(json, "compressor");
 		if (compressor_val) {
 			if (yyjson_is_obj(compressor_val)) {
-				auto* cname_val = yyjson_obj_get(compressor_val, "cname");
+				auto *cname_val = yyjson_obj_get(compressor_val, "cname");
 				if (cname_val && yyjson_is_str(cname_val)) {
 					meta.compressor = yyjson_get_str(cname_val);
 				} else {
 					// Try codec name
-					auto* codec_val = yyjson_obj_get(compressor_val, "codec");
+					auto *codec_val = yyjson_obj_get(compressor_val, "codec");
 					if (codec_val && yyjson_is_str(codec_val)) {
 						meta.compressor = yyjson_get_str(codec_val);
 					}
@@ -216,21 +216,21 @@ ZarrArrayMetadata ZarrMetadata::ParseZarray(const std::string& zarray_content, c
 		}
 
 		// Order
-		auto* order_val = yyjson_obj_get(json, "order");
+		auto *order_val = yyjson_obj_get(json, "order");
 		if (order_val && yyjson_is_str(order_val)) {
 			meta.order = yyjson_get_str(order_val);
 		}
 
 		yyjson_doc_free(doc);
 
-	} catch (std::exception&) {
+	} catch (std::exception &) {
 		// Return what we have
 	}
 
 	return meta;
 }
 
-void ZarrMetadata::ParseZarrJson(const std::string& zarr_json_content, const std::string& path) {
+void ZarrMetadata::ParseZarrJson(const std::string &zarr_json_content, const std::string &path) {
 	ZarrArrayMetadata meta;
 	meta.zarr_version = 3;
 	meta.compressor = "none";
@@ -238,26 +238,26 @@ void ZarrMetadata::ParseZarrJson(const std::string& zarr_json_content, const std
 
 	try {
 		yyjson_read_err err;
-		auto* doc = yyjson_read(zarr_json_content.c_str(), zarr_json_content.size(), 0, &err);
+		auto *doc = yyjson_read(zarr_json_content.c_str(), zarr_json_content.size(), 0, &err);
 		if (!doc) {
 			error_message_ = err.msg;
 			return;
 		}
 
-		auto* json = yyjson_doc_get_root(doc);
+		auto *json = yyjson_doc_get_root(doc);
 
 		// Zarr v3 stores shape and dtype in different locations
-		auto* metadata_val = yyjson_obj_get(json, "metadata");
+		auto *metadata_val = yyjson_obj_get(json, "metadata");
 		if (!metadata_val || !yyjson_is_obj(metadata_val)) {
 			yyjson_doc_free(doc);
 			return;
 		}
 
 		// Shape
-		auto* shape_val = yyjson_obj_get(metadata_val, "shape");
+		auto *shape_val = yyjson_obj_get(metadata_val, "shape");
 		if (shape_val && yyjson_is_arr(shape_val)) {
 			size_t idx, max;
-			yyjson_arr_foreach(shape_val, idx, max, auto* dim) {
+			yyjson_arr_foreach(shape_val, idx, max, auto *dim) {
 				if (yyjson_is_int(dim)) {
 					meta.shape.push_back(yyjson_get_int(dim));
 				} else if (yyjson_is_null(dim)) {
@@ -268,12 +268,12 @@ void ZarrMetadata::ParseZarrJson(const std::string& zarr_json_content, const std
 		}
 
 		// Chunk grid (chunk_shape)
-		auto* chunk_grid_val = yyjson_obj_get(metadata_val, "chunk_grid");
+		auto *chunk_grid_val = yyjson_obj_get(metadata_val, "chunk_grid");
 		if (chunk_grid_val && yyjson_is_obj(chunk_grid_val)) {
-			auto* chunk_shape_val = yyjson_obj_get(chunk_grid_val, "chunk_shape");
+			auto *chunk_shape_val = yyjson_obj_get(chunk_grid_val, "chunk_shape");
 			if (chunk_shape_val && yyjson_is_arr(chunk_shape_val)) {
 				size_t idx, max;
-				yyjson_arr_foreach(chunk_shape_val, idx, max, auto* chunk) {
+				yyjson_arr_foreach(chunk_shape_val, idx, max, auto *chunk) {
 					if (yyjson_is_int(chunk)) {
 						meta.chunks.push_back(yyjson_get_int(chunk));
 					}
@@ -282,27 +282,27 @@ void ZarrMetadata::ParseZarrJson(const std::string& zarr_json_content, const std
 		}
 
 		// Data type
-		auto* data_type_val = yyjson_obj_get(metadata_val, "data_type");
+		auto *data_type_val = yyjson_obj_get(metadata_val, "data_type");
 		if (data_type_val && yyjson_is_str(data_type_val)) {
 			meta.dtype = NormalizeDtype(yyjson_get_str(data_type_val));
 		}
 
 		// Fill value
-		auto* fill_value_val = yyjson_obj_get(metadata_val, "fill_value");
+		auto *fill_value_val = yyjson_obj_get(metadata_val, "fill_value");
 		if (fill_value_val) {
 			meta.fill_value = FillValueToString(fill_value_val);
 		}
 
 		// Codecs
-		auto* codecs_val = yyjson_obj_get(metadata_val, "codecs");
+		auto *codecs_val = yyjson_obj_get(metadata_val, "codecs");
 		if (codecs_val && yyjson_is_arr(codecs_val)) {
 			std::vector<std::string> codecs;
 			size_t idx, max;
-			yyjson_arr_foreach(codecs_val, idx, max, auto* codec) {
+			yyjson_arr_foreach(codecs_val, idx, max, auto *codec) {
 				if (yyjson_is_str(codec)) {
 					codecs.push_back(yyjson_get_str(codec));
 				} else if (yyjson_is_obj(codec)) {
-					auto* name_val = yyjson_obj_get(codec, "name");
+					auto *name_val = yyjson_obj_get(codec, "name");
 					if (name_val && yyjson_is_str(name_val)) {
 						codecs.push_back(yyjson_get_str(name_val));
 					}
@@ -319,12 +319,12 @@ void ZarrMetadata::ParseZarrJson(const std::string& zarr_json_content, const std
 		yyjson_doc_free(doc);
 		arrays_.push_back(meta);
 
-	} catch (std::exception& e) {
+	} catch (std::exception &e) {
 		error_message_ = std::string(e.what());
 	}
 }
 
-std::string ZarrMetadata::NormalizeDtype(const std::string& dtype) {
+std::string ZarrMetadata::NormalizeDtype(const std::string &dtype) {
 	// Handle common types - normalize to standard names
 	if (dtype == "<i1" || dtype == "i1" || dtype == "int8")
 		return "int8";
@@ -358,7 +358,7 @@ std::string ZarrMetadata::NormalizeDtype(const std::string& dtype) {
 	return dtype;
 }
 
-std::string ZarrMetadata::FillValueToString(yyjson_val* fill_value) {
+std::string ZarrMetadata::FillValueToString(yyjson_val *fill_value) {
 	if (yyjson_is_num(fill_value)) {
 		if (yyjson_is_int(fill_value)) {
 			return std::to_string(yyjson_get_int(fill_value));
@@ -373,7 +373,7 @@ std::string ZarrMetadata::FillValueToString(yyjson_val* fill_value) {
 		return yyjson_get_bool(fill_value) ? "true" : "false";
 	}
 	// Fallback: convert to string
-	char* json_str = yyjson_val_write(fill_value, 0, nullptr);
+	char *json_str = yyjson_val_write(fill_value, 0, nullptr);
 	if (json_str) {
 		std::string result(json_str);
 		free(json_str);
@@ -382,11 +382,11 @@ std::string ZarrMetadata::FillValueToString(yyjson_val* fill_value) {
 	return "";
 }
 
-const std::vector<ZarrArrayMetadata>& ZarrMetadata::GetArrays() const {
+const std::vector<ZarrArrayMetadata> &ZarrMetadata::GetArrays() const {
 	return arrays_;
 }
 
-const std::string& ZarrMetadata::GetPath() const {
+const std::string &ZarrMetadata::GetPath() const {
 	return path_;
 }
 
@@ -394,7 +394,7 @@ bool ZarrMetadata::IsValid() const {
 	return is_valid_;
 }
 
-const std::string& ZarrMetadata::GetError() const {
+const std::string &ZarrMetadata::GetError() const {
 	return error_message_;
 }
 
