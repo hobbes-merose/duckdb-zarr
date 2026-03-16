@@ -37,14 +37,14 @@ void ZarrMetadata::Parse(const std::string &path) {
 		try {
 			auto file_handle = fs.OpenFile(zarr_json_path, FileOpenFlags::FILE_FLAGS_READ);
 			idx_t file_size = fs.GetFileSize(*file_handle);
-			std::string content(file_size, '\0');
-			fs.Read(*file_handle, char_ptr_cast(content.data()), file_size);
+			std::vector<char> content_vec(file_size);
+			fs.Read(*file_handle, content_vec.data(), file_size);
+			std::string content(content_vec.begin(), content_vec.end());
 
 			// Parse as JSON using yyjson (DuckDB's internal JSON library)
-			yyjson_read_err err;
-			auto *doc = yyjson_read(content.c_str(), content.size(), 0, &err);
+			auto *doc = yyjson_read(content.c_str(), content.size(), 0);
 			if (!doc) {
-				throw std::runtime_error(err.msg);
+				throw std::runtime_error("Failed to parse JSON");
 			}
 
 			auto *root = yyjson_doc_get_root(doc);
@@ -114,8 +114,9 @@ void ZarrMetadata::Parse(const std::string &path) {
 			try {
 				auto file_handle = fs.OpenFile(zarray_path, FileOpenFlags::FILE_FLAGS_READ);
 				idx_t file_size = fs.GetFileSize(*file_handle);
-				std::string content(file_size, '\0');
-				fs.Read(*file_handle, char_ptr_cast(content.data()), file_size);
+				std::vector<char> content_vec(file_size);
+				fs.Read(*file_handle, content_vec.data(), file_size);
+				std::string content(content_vec.begin(), content_vec.end());
 
 				std::string name = array_path;
 				if (StringUtil::StartsWith(name, "/")) {
@@ -154,8 +155,7 @@ ZarrArrayMetadata ZarrMetadata::ParseZarray(const std::string &zarray_content, c
 	meta.order = "C";
 
 	try {
-		yyjson_read_err err;
-		auto *doc = yyjson_read(zarray_content.c_str(), zarray_content.size(), 0, &err);
+		auto *doc = yyjson_read(zarray_content.c_str(), zarray_content.size(), 0);
 		if (!doc) {
 			return meta;
 		}
@@ -166,7 +166,8 @@ ZarrArrayMetadata ZarrMetadata::ParseZarray(const std::string &zarray_content, c
 		auto *shape_val = yyjson_obj_get(json, "shape");
 		if (shape_val && yyjson_is_arr(shape_val)) {
 			size_t idx, max;
-			yyjson_arr_foreach(shape_val, idx, max, auto *dim) {
+			yyjson_val *dim;
+			yyjson_arr_foreach(shape_val, idx, max, dim) {
 				if (yyjson_is_int(dim)) {
 					meta.shape.push_back(yyjson_get_int(dim));
 				}
@@ -177,7 +178,8 @@ ZarrArrayMetadata ZarrMetadata::ParseZarray(const std::string &zarray_content, c
 		auto *chunks_val = yyjson_obj_get(json, "chunks");
 		if (chunks_val && yyjson_is_arr(chunks_val)) {
 			size_t idx, max;
-			yyjson_arr_foreach(chunks_val, idx, max, auto *chunk) {
+			yyjson_val *chunk;
+			yyjson_arr_foreach(chunks_val, idx, max, chunk) {
 				if (yyjson_is_int(chunk)) {
 					meta.chunks.push_back(yyjson_get_int(chunk));
 				}
@@ -237,10 +239,9 @@ void ZarrMetadata::ParseZarrJson(const std::string &zarr_json_content, const std
 	meta.order = "C";
 
 	try {
-		yyjson_read_err err;
-		auto *doc = yyjson_read(zarr_json_content.c_str(), zarr_json_content.size(), 0, &err);
+		auto *doc = yyjson_read(zarr_json_content.c_str(), zarr_json_content.size(), 0);
 		if (!doc) {
-			error_message_ = err.msg;
+			error_message_ = "Failed to parse JSON";
 			return;
 		}
 
@@ -257,7 +258,8 @@ void ZarrMetadata::ParseZarrJson(const std::string &zarr_json_content, const std
 		auto *shape_val = yyjson_obj_get(metadata_val, "shape");
 		if (shape_val && yyjson_is_arr(shape_val)) {
 			size_t idx, max;
-			yyjson_arr_foreach(shape_val, idx, max, auto *dim) {
+			yyjson_val *dim;
+			yyjson_arr_foreach(shape_val, idx, max, dim) {
 				if (yyjson_is_int(dim)) {
 					meta.shape.push_back(yyjson_get_int(dim));
 				} else if (yyjson_is_null(dim)) {
@@ -273,7 +275,8 @@ void ZarrMetadata::ParseZarrJson(const std::string &zarr_json_content, const std
 			auto *chunk_shape_val = yyjson_obj_get(chunk_grid_val, "chunk_shape");
 			if (chunk_shape_val && yyjson_is_arr(chunk_shape_val)) {
 				size_t idx, max;
-				yyjson_arr_foreach(chunk_shape_val, idx, max, auto *chunk) {
+				yyjson_val *chunk;
+				yyjson_arr_foreach(chunk_shape_val, idx, max, chunk) {
 					if (yyjson_is_int(chunk)) {
 						meta.chunks.push_back(yyjson_get_int(chunk));
 					}
@@ -298,7 +301,8 @@ void ZarrMetadata::ParseZarrJson(const std::string &zarr_json_content, const std
 		if (codecs_val && yyjson_is_arr(codecs_val)) {
 			std::vector<std::string> codecs;
 			size_t idx, max;
-			yyjson_arr_foreach(codecs_val, idx, max, auto *codec) {
+			yyjson_val *codec;
+			yyjson_arr_foreach(codecs_val, idx, max, codec) {
 				if (yyjson_is_str(codec)) {
 					codecs.push_back(yyjson_get_str(codec));
 				} else if (yyjson_is_obj(codec)) {

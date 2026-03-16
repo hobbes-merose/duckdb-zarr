@@ -15,6 +15,17 @@ namespace duckdb {
 struct ZarrMetadataFunctionData : public FunctionData {
 	std::vector<ZarrArrayMetadata> arrays;
 	idx_t current_array_index = 0;
+
+	unique_ptr<FunctionData> Copy() const override {
+		auto result = make_uniq<ZarrMetadataFunctionData>();
+		result->arrays = arrays;
+		result->current_array_index = current_array_index;
+		return result;
+	}
+
+	bool Equals(const FunctionData &other) const override {
+		return this == &other;
+	}
 };
 
 //! Zarr metadata table function bind
@@ -55,7 +66,8 @@ static unique_ptr<FunctionData> ZarrMetadataBind(ClientContext &context, TableFu
 
 //! Zarr metadata table function
 static void ZarrMetadataFunction(ClientContext &context, TableFunctionInput &data, DataChunk &output) {
-	auto &function_data = data.bind_data->Cast<ZarrMetadataFunctionData>();
+	// Cast away const to update the index
+	auto &function_data = const_cast<ZarrMetadataFunctionData &>(data.bind_data->Cast<ZarrMetadataFunctionData>());
 
 	// Check if we have more arrays to return
 	if (function_data.current_array_index >= function_data.arrays.size()) {
@@ -104,7 +116,15 @@ static void LoadInternal(ExtensionLoader &loader) {
 	auto zarr_scalar_function = ScalarFunction("zarr", {LogicalType::VARCHAR}, LogicalType::VARCHAR, ZarrScalarFun);
 	loader.RegisterFunction(zarr_scalar_function);
 
-	// Register another scalar function
+	// Register the zarr_metadata table function
+	TableFunction zarr_metadata_function("zarr_metadata", {LogicalType::VARCHAR}, ZarrMetadataFunction,
+	                                     ZarrMetadataBind);
+	zarr_metadata_function.named_parameters["binary"] = LogicalType::BOOLEAN;
+	loader.RegisterFunction(zarr_metadata_function);
+}
+
+void ZarrExtension::Load(ExtensionLoader &loader) {
+	LoadInternal(loader);
 }
 std::string ZarrExtension::Name() {
 	return "zarr";

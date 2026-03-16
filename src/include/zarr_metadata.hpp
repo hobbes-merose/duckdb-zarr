@@ -11,6 +11,9 @@
 #include "duckdb.hpp"
 #include <vector>
 #include <string>
+#include <yyjson.hpp>
+
+using namespace duckdb_yyjson;
 
 namespace duckdb {
 
