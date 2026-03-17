@@ -67,12 +67,22 @@ By exposing Zarr arrays as SQL tables in DuckDB, users can:
                                │
                                ▼
 ┌─────────────────────────────────────────────────────────────────┐
-│                    Zarr C++ Implementation                        │
+│                    duckdb-zarr Extension                         │
 │  ┌─────────────────────────────────────────────────────────┐   │
-│  │  Zarr Metadata Parser → Chunk Reader → Pivot Algorithm │   │
-│  │  • Parse .zarr JSON metadata (shape, dtype, chunks)     │   │
-│  │  • Read/decompress binary chunks (blosc2, zstd, gzip)  │   │
-│  │  • Transform n-dimensional data to tabular rows        │   │
+│  │  DuckDB Integration Layer                                │   │
+│  │  • Table function, vector conversion                    │   │
+│  └─────────────────────────────────────────────────────────┘   │
+│                              │                                   │
+│  ┌─────────────────────────────────────────────────────────┐   │
+│  │  zarrs_ffi (single header library)                     │   │
+│  │  • Metadata APIs (shape, dtype, chunks)                │   │
+│  │  • Chunk retrieval & decompression (blosc2, zstd)      │   │
+│  └─────────────────────────────────────────────────────────┘   │
+│                              │                                   │
+│  ┌─────────────────────────────────────────────────────────┐   │
+│  │  Arrow-Based Pivot (~100 LOC)                           │   │
+│  │  • Strided memory access for array→table transform     │   │
+│  │  • Dictionary encoding for coordinates                  │   │
 │  └─────────────────────────────────────────────────────────┘   │
 └──────────────────────────────┬───────────────────────────────────┘
                                │
@@ -91,7 +101,7 @@ By exposing Zarr arrays as SQL tables in DuckDB, users can:
 2. **Binding**: DuckDB calls table function `bind()` to validate parameters and define return schema
 3. **Planning**: DuckDB optimizes query (predicate pushdown, column pruning)
 4. **Scanning**: Zarr function returns a `DataChunk` iterator via parallel scan
-5. **Conversion**: Zarr data (via native C++ implementation) is converted to DuckDB vectors
+5. **Conversion**: Zarr data (via zarrs_ffi + Arrow pivot) is converted to DuckDB vectors
 
 ---
 
@@ -131,68 +141,146 @@ humidity[t, lat, lon]     →    | 0         | 0   | 0   | 43          |
 
 ## 2.1 Implementation Approach
 
-### Native C++ Reimplementation
+### zarrs_ffi Integration
 
-We are reimplementing the [zarr-datafusion](https://docs.rs/zarr-datafusion/latest/zarr_datafusion/) logic in C++ instead of using FFI (Foreign Function Interface). This approach offers several advantages:
+We are using [zarrs_ffi](https://zarrs.dev/zarrs_ffi/) as the Zarr reader instead of building a native C++ implementation from scratch. This C library provides C/C++ bindings for the [zarrs](https://github.com/LDeakin/zarrs) Rust crate, which is a high-performance Zarr implementation.
 
-- **Avoids FFI complexity**: No need to deal with memory management across language boundaries, complex build systems, or difficult debugging across FFI boundaries
-- **Better integration**: Direct integration with DuckDB's memory management and execution model
-- **Simpler debugging**: All code runs in the same memory space with consistent tooling
+**Why zarrs_ffi?**
 
-**We will NOT use any C++ Zarr library** (including [tensorstore](https://github.com/google/tensorstore)) - they are too heavy with complex dependencies that would complicate the build and runtime environment. We evaluated several alternatives:
+- **Comprehensive codec support**: Built-in support for blosc2, zstd, gzip, lz4, and other codecs without needing to reimplement decompression
+- **Zarr v2 and v3 support**: Native support for both Zarr format versions including sharded arrays
+- **Active development**: Well-maintained with proper versioning and error handling
+- **Remote storage**: Support for filesystem storage (can be extended to S3/GCS via storage transformers)
+- **Performance**: Optimized Rust implementation for chunk retrieval and decompression
 
-- **[xtensor-stack/xtensor-zarr](https://github.com/xtensor-stack/xtensor-zarr)**: Built on xtensor for tensor operations, primarily focused on *creating* Zarr arrays rather than reading. Uses CMake and has tight coupling to the xtensor ecosystem.
+**zarrs_ffi Build Instructions:**
 
-- **[abcucberkeley/cpp-zarr](https://github.com/abcucberkeley/cpp-zarr)**: UC Berkeley library focused on image processing use cases. Less actively maintained and specialized for specific scientific workflows.
+zarrs_ffi is distributed as a single-header C library. To build it for use in the duckdb-zarr extension:
 
-- **[constantinpape/z5](https://github.com/constantinpape/z5)**: C++ library for n5 format (a Zarr variant), used in scientific computing. Requires complex build dependencies and is specialized for niche use cases.
+```bash
+# Clone the zarrs repository
+git clone https://github.com/LDeakin/zarrs.git
+cd zarrs
 
-Additionally, using DuckDB's internal file system abstractions provides better integration - we can leverage their existing abstractions for local files, S3, GCS, etc. without FFI complexity. This avoids the overhead of bridging between external C++ libraries and DuckDB's memory management.
+# Build the FFI bindings (produces libzarrs.a static library)
+cargo build --release --features=ffi
+
+# The static library will be at:
+# target/release/libzarrs.a
+```
+
+**Linking with DuckDB Extension:**
+
+Add the following to your extension's CMakeLists.txt:
+```cmake
+# Link against zarrs_ffi static library
+target_link_libraries(duckdb_zarr_extension INTERFACE zarrs)
+```
+
+Alternatively, use the prebuilt release artifacts from the [zarrs releases page](https://github.com/LDeakin/zarrs/releases).
+
+**What zarrs_ffi provides:**
+
+| Feature | zarrs_ffi API |
+|---------|---------------|
+| Array opening | `zarrsOpenArrayRW()` |
+| Metadata APIs | `zarrsArrayGetDimensionality()`, `zarrsArrayGetShape()`, `zarrsArrayGetDataType()` |
+| Chunk information | `zarrsArrayGetChunkGridShape()`, `zarrsArrayGetChunkOrigin()`, `zarrsArrayGetChunkShape()` |
+| Chunk retrieval | `zarrsArrayRetrieveChunk()`, `zarrsArrayRetrieveSubset()` |
+| Sharding support | `zarrsCreateShardIndexCache()` for efficient shard access |
+
+**What we still need to build ourselves:**
+
+1. **DuckDB integration**: Table function registration, vector conversion, predicate pushdown
+2. **Arrow-based pivot**: Convert n-dimensional array data to tabular format using Arrow buffers
+
+This hybrid approach gives us the best of both worlds: production-ready chunk handling and metadata APIs from zarrs_ffi while maintaining full control over the SQL interface and data transformation logic.
 
 ### Implementation Plan
 
-The implementation is divided into 5 phases, targeting approximately **950 lines of C++ code** total:
+The implementation is divided into 3 phases, targeting approximately **400 lines of C++ code** total (reduced from ~950 LOC):
 
-#### Phase 1: Zarr Metadata Parser (~200 LOC)
-- Parse .zarr JSON metadata files
-- Extract shape, dtype, chunks, fill_value, compressors
-- Support both Zarr v2 and v3 metadata formats
-- Validate metadata consistency
-
-#### Phase 2: Chunk Reader + Decompression (~300 LOC)
-- Read binary chunk data from local files or cloud storage
-- Decompress using c-blosc2 (already in DuckDB tree)
-- Support multiple codecs: blosc, zstd, gzip, lz4
-- Handle partial chunk reads for query pushdown
-
-#### Phase 3: Pivot Algorithm (~200 LOC)
-- Core array-to-table transform algorithm
-- Strided memory access to convert chunk data to row-oriented format
-- Handle dimension ordering and axis transformations
-- The core pivot algorithm is remarkably simple - only ~30 lines of code using strided memory access
-
-#### Phase 4: DuckDB Integration (~150 LOC)
+#### Phase 1: DuckDB Integration & zarrs_ffi Wrapper (~150 LOC)
 - Table function registration (read_zarr)
-- Schema inference from Zarr metadata (coordinate arrays → columns, data variables → flattened columns)
+- Schema inference from zarrs_ffi metadata APIs
 - DataChunk conversion to DuckDB vectors
 - Predicate pushdown support
 - Projection pushdown (only read requested columns)
 
-#### Phase 5: Cloud Storage (~100 LOC)
-- Use Arrow/DuckDB's existing object_store integration
-- Support S3, GCS, Azure Blob storage backends
-- Leverage connection pooling and caching
+#### Phase 2: Chunk Reader via zarrs_ffi (~100 LOC)
+- Use zarrs_ffi C library for chunk retrieval and decompression
+- Open arrays with `zarrsOpenArrayRW()` for read access
+- Retrieve chunk data with `zarrsArrayRetrieveChunk()` (individual chunks)
+- Retrieve subsets with `zarrsArrayRetrieveSubset()` (optimized for query pushdown)
+- Leverage built-in codec support: blosc2, zstd, gzip, lz4
+- Handle sharded arrays with `zarrsCreateShardIndexCache()`
 
-### Lightweight Dependencies
+#### Phase 3: Arrow-Based Pivot (~100 LOC)
+- Core array-to-table transform algorithm using Arrow
+- Use Arrow buffers directly for efficiency
+- Dictionary encoding for coordinate columns (~75% memory savings)
+- Strided memory access to convert chunk data to row-oriented format
 
-All dependencies are already available in the DuckDB ecosystem:
+### Dependencies
 
 | Dependency | Purpose | Status |
 |------------|---------|--------|
-| nlohmann/json | Header-only JSON parsing | Lightweight, single header |
-| c-blosc2 | Chunk decompression | Already in DuckDB tree |
-| libzstd | Zstd compression | Already in DuckDB tree |
+| zarrs_ffi | Zarr reading (chunk retrieval, decompression, Zarr v2/v3, metadata APIs) | Build-time: cargo/rust, Runtime: prebuilt static library |
 | Arrow C++ | Arrow integration | Already a DuckDB dependency |
+| DuckDB yyjson | JSON metadata parsing | Already in DuckDB tree |
+
+**Note:** We no longer need nlohmann/json, c-blosc2, or libzstd as separate dependencies - zarrs_ffi handles all compression/decompression internally.
+
+**Build Integration Note:**
+
+Using zarrs_ffi requires adding Rust/cargo to the DuckDB extension build:
+- **Build-time**: Compile zarrs_ffi as a static library and link into the extension
+- **Runtime**: zarrs_ffi is embedded in the extension binary (no separate runtime dependencies)
+- **Alternative**: Use the prebuilt zarrs_ffi static library from the zarrs release artifacts
+
+The zarrs_ffi library handles:
+- Chunk retrieval from storage
+- Decompression (blosc2, zstd, gzip, lz4 - all codecs built into zarrs)
+- Zarr v2 and v3 metadata and data handling
+- Sharded array support
+- Metadata APIs (shape, dtype, dimensionality, chunk shape) - eliminates need for custom JSON parsing
+
+#### zarrs_ffi Build Instructions
+
+zarrs_ffi is a single-header C library that wraps the zarrs Rust crate. To build it:
+
+1. **Install Rust** (if not already installed):
+   ```bash
+   curl --proto '=https' --tlsv1.2 -sSf https://sh.rustup.rs | sh
+   ```
+
+2. **Build zarrs_ffi**:
+   ```bash
+   # Clone and build the zarrs_ffi crate
+   git clone https://github.com/LDeakin/zarrs_ffi.git
+   cd zarrs_ffi
+   cargo build --release
+   
+   # This produces a static library (target/release/libzarrs_ffi.a)
+   ```
+
+3. **Integration**: The resulting static library can be linked directly into the DuckDB extension. No runtime Rust dependencies needed.
+
+**Key APIs**:
+```cpp
+// Open array
+int zarrsOpenArrayRW(const char *storage, const char *path, ZarrsArray *array);
+
+// Metadata APIs (eliminate need for custom JSON parsing)
+int zarrsArrayGetDimensionality(ZarrsArray array, size_t *dimensionality);
+int zarrsArrayGetShape(ZarrsArray array, uint64_t *shape);
+int zarrsArrayGetDataType(ZarrsArray array, char **dtype);
+int zarrsArrayGetChunkGridShape(ZarrsArray array, uint64_t *chunk_grid_shape);
+
+// Chunk retrieval
+int zarrsArrayRetrieveChunk(ZarrsArray array, size_t dimensionality,
+                            const uint64_t *indices, size_t chunk_size, uint8_t *buffer);
+```
 
 ### The Pivot Algorithm
 
@@ -205,6 +293,49 @@ For each cell in the output table:
 4. Apply strided access to read the value
 
 This is simply strided memory access - the same technique used by NumPy arrays. No complex data structures or algorithms required.
+
+#### zarrs_ffi Integration Pattern
+
+The zarrs_ffi integration follows a clean separation of concerns:
+
+```
+┌─────────────────────────────────────────────────────────────────┐
+│                    duckdb-zarr Extension                        │
+│  ┌───────────────────────────────────────────────────────────┐ │
+│  │  DuckDB Integration Layer                                  │ │
+│  │  • Table function registration (read_zarr)                │ │
+│  │  • Schema inference from metadata JSON                    │ │
+│  │  • Vector construction from chunk data                     │ │
+│  └───────────────────────────────────────────────────────────┘ │
+│                              │                                   │
+│  ┌───────────────────────────────────────────────────────────┐ │
+│  │  Pivot Algorithm (custom C++)                             │ │
+│  │  • Strided memory access for array→table transform       │ │
+│  │  • Coordinate expansion (DictionaryArray optimization)   │ │
+│  └───────────────────────────────────────────────────────────┘ │
+│                              │                                   │
+│  ┌───────────────────────────────────────────────────────────┐ │
+│  │  zarrs_ffi (C library via FFI)                           │ │
+│  │  • zarrsOpenArrayRW() - Open array handle                │ │
+│  │  • zarrsArrayGetMetadataString() - Get metadata JSON     │ │
+│  │  • zarrsArrayRetrieveChunk() - Get decompressed chunk    │ │
+│  │  • zarrsArrayRetrieveSubset() - Get decompressed subset   │ │
+│  └───────────────────────────────────────────────────────────┘ │
+└─────────────────────────────────────────────────────────────────┘
+```
+
+**Typical query flow:**
+
+1. Call `zarrsOpenArrayRW(storage, path, &array)` to open the Zarr array
+2. Call `zarrsArrayGetMetadataString(array, true, &metadata_json)` to get metadata
+3. Parse metadata JSON to infer DuckDB schema (dtype → SQL type, shape → row estimation)
+4. For each query batch:
+   - Determine which chunks overlap with the query region
+   - Call `zarrsArrayRetrieveChunk()` or `zarrsArrayRetrieveSubset()` to get decompressed data
+   - Apply pivot algorithm to convert chunk data to row format
+   - Convert to DuckDB vectors
+
+**Key insight:** zarrs_ffi returns *already decompressed* data. The pivot algorithm operates on plain in-memory buffers with no additional decompression overhead.
 
 #### Memory-Efficient Coordinate Expansion
 
@@ -456,9 +587,7 @@ SELECT * FROM read_zarr_metadata('/path/to/store.zarr');
 | Dependency | Version | Purpose |
 |------------|---------|---------|
 | DuckDB | (submodule) | Core database, extension framework |
-| nlohmann/json | 3.10+ | Header-only JSON parsing for Zarr metadata |
-| c-blosc2 | (in DuckDB tree) | Chunk decompression |
-| libzstd | (in DuckDB tree) | Zstd compression support |
+| zarrs_ffi | (build-time) | Zarr reading (chunk retrieval, decompression, Zarr v2/v3, metadata APIs) |
 | Arrow C++ | (in DuckDB tree) | Columnar data format integration |
 
 ### Dependency Graph
@@ -466,19 +595,11 @@ SELECT * FROM read_zarr_metadata('/path/to/store.zarr');
 ```
 duckdb
   │
-  └── duckdb_zarr_extension (native C++ implementation)
+  └── duckdb_zarr_extension
         │
-        ├── nlohmann/json (Zarr metadata parsing)
+        ├── zarrs_ffi (Zarr chunk retrieval, decompression, metadata APIs)
         │     │
-        │     └── Header-only JSON parsing
-        │
-        ├── c-blosc2 (chunk decompression)
-        │     │
-        │     └── Already in DuckDB tree
-        │
-        ├── libzstd (zstd compression)
-        │     │
-        │     └── Already in DuckDB tree
+        │     └── Built via cargo, linked as static library
         │
         └── Arrow C++ (data conversion)
               │
@@ -486,44 +607,32 @@ duckdb
 
 ```
 
-### Native C++ Implementation Components
+### Simplified Architecture Components
 
-The native C++ implementation consists of three core components:
+With zarrs_ffi handling chunk retrieval and metadata, our implementation focuses on the integration layer:
 
 ```cpp
-// Zarr Metadata Parser - parses .zarr JSON metadata
-class ZarrMetadataParser {
+// DuckDB Integration Layer - Table function and vector conversion
+class ZarrScanFunction {
 public:
-    static ZarrArrayMetadata Parse(const std::string& path, const std::string& array_name);
-    // Handles: shape, dtype, chunks, fill_value, compressors
-    // Supports: Zarr v2 and v3 formats
+    static unique_ptr<FunctionData> Bind(ClientContext &context, ...);
+    static void Function(ClientContext &context, TableFunctionInput &data, DataChunk &output);
 };
 
-// Chunk Reader - reads and decompresses binary chunk data
-class ChunkReader {
+// Arrow-Based Pivot - Array to table transform
+class ArrowPivot {
 public:
-    ChunkReader(const std::string& path, const ZarrArrayMetadata& metadata);
-    std::vector<ChunkData> ReadRelevantChunks(const ChunkPredicate& predicate);
-    // Handles: local files, cloud storage (S3/GCS/Azure)
-    // Supports: blosc, zstd, gzip, lz4 decompression
-};
-
-// Pivot Algorithm - transforms array data to tabular format
-class PivotAlgorithm {
-public:
-    PivotAlgorithm(const ZarrArrayMetadata& metadata);
-    void PivotToDuckDBVectors(const std::vector<ChunkData>& chunks,
-                              DataChunk& output,
-                              const std::vector<idx_t>& column_ids);
-    // Core array-to-table transform using strided memory access
+    ArrowPivot(const ZarrArrayMetadata &metadata);
+    void PivotToDuckDBVectors(const uint8_t* chunk_data, DataChunk &output);
+    // Uses Arrow buffers directly with dictionary encoding for coordinates
 };
 ```
 
-These components handle:
-- Reading Zarr metadata (`.zarray`, `.zattrs`)
-- Chunk selection based on predicates
-- I/O for local and remote stores
-- Type conversion (Zarr dtype → DuckDB types)
+**Key simplifications:**
+
+1. **No custom JSON parsing**: Use zarrs_ffi metadata APIs (`zarrsArrayGetShape()`, `zarrsArrayGetDataType()`) instead
+2. **No custom decompression**: zarrs_ffi returns decompressed data
+3. **Arrow-native pivot**: Use Arrow buffers directly for efficiency
 
 ---
 
