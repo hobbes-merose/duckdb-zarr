@@ -1,0 +1,11 @@
+{
+  "uuid": "3d94c38a-56bc-4b06-b97d-cd74e18073c0",
+  "display_id": 2,
+  "title": "Table function registration, schema inference, vector conversion, predicate/projection pushdown",
+  "description": "Created by crosslink kickoff",
+  "status": "open",
+  "priority": "medium",
+  "created_by": "phase-1-agent",
+  "created_at": "2026-03-17T18:08:26.123015448Z",
+  "updated_at": "2026-03-17T18:08:26.123015448Z"
+}
