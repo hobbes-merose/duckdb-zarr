@@ -1,6 +1,7 @@
 #define DUCKDB_EXTENSION_MAIN
 
 #include "zarr_extension.hpp"
+#include "zarr_scan.hpp"
 #include "duckdb.hpp"
 #include "duckdb/common/exception.hpp"
 #include "duckdb/function/scalar_function.hpp"
@@ -35,6 +36,9 @@ static void LoadInternal(ExtensionLoader &loader) {
 	auto zarr_openssl_version_scalar_function = ScalarFunction("zarr_openssl_version", {LogicalType::VARCHAR},
 	                                                           LogicalType::VARCHAR, ZarrOpenSSLVersionScalarFun);
 	loader.RegisterFunction(zarr_openssl_version_scalar_function);
+
+	// Register the read_zarr table function
+	ZarrScanFunction::Register(loader);
 }
 
 void ZarrExtension::Load(ExtensionLoader &loader) {
