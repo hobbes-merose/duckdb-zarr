@@ -1,0 +1,11 @@
+{
+  "uuid": "7882995e-9141-4fb4-a312-10d4a88a1c62",
+  "display_id": 4,
+  "title": "Phase 2: Chunk Reader via zarrs_ffi",
+  "description": "## Goal\nImplement ~100 LOC of chunk reading using zarrs_ffi C library for the duckdb-zarr extension.\n\n## Tasks\n1. Use zarrs_ffi C library for chunk retrieval and decompression\n2. Open arrays with zarrsOpenArrayRW() for read access\n3. Retrieve chunk data with zarrsArrayRetrieveChunk() (individual chunks)\n4. Retrieve subsets with zarrsArrayRetrieveSubset() (optimized for query pushdown)\n5. Leverage built-in codec support: blosc2, zstd, gzip, lz4\n6. Handle sharded arrays with zarrsCreateShardIndexCache()\n\n## Dependencies\n- zarrs_ffi: All chunk handling is done via this library\n\n## Key APIs\n- zarrsOpenArrayRW() - Open array for reading\n- zarrsArrayRetrieveChunk() - Get decompressed chunk by indices\n- zarrsArrayRetrieveSubset() - Get decompressed subset (optimized for predicate pushdown)\n- zarrsCreateShardIndexCache() - Efficient shard access for sharded arrays\n\n## Definition of Done\n- [ ] Can read chunks from Zarr v2 arrays\n- [ ] Can read chunks from Zarr v3 arrays\n- [ ] Decompression works (blosc2, zstd)\n- [ ] Predicate pushdown reduces data read\n- [ ] Build passes on CI",
+  "status": "open",
+  "priority": "medium",
+  "created_by": "anon-d18ab50f",
+  "created_at": "2026-03-17T19:30:27.505832610Z",
+  "updated_at": "2026-03-17T19:30:27.505832610Z"
+}
