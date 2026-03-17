@@ -7,5 +7,8 @@
   "priority": "medium",
   "created_by": "phase-1-agent",
   "created_at": "2026-03-17T18:08:26.123015448Z",
-  "updated_at": "2026-03-17T18:08:26.123015448Z"
+  "updated_at": "2026-03-17T18:08:27.363958242Z",
+  "labels": [
+    "feature"
+  ]
 }
